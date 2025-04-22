@@ -1,101 +1,106 @@
-import { z } from 'zod'
-import { Agent } from '@openserv-labs/sdk'
-import 'dotenv/config'
+/**
+ * Number Range Agent - Main Entry Point
+ *
+ * This agent returns a string of numbers between two given numbers, separated by commas.
+ */
+import { Agent } from '@openserv-labs/sdk';
+import { config } from './config';
+import { addNumberRangeCapability } from './capabilities/numberRange';
+import { generateNumberRange } from './services/numberRange';
+import { createLogger } from './utils/logger';
 
-// Enable more verbose logging
-process.env.LOG_LEVEL = 'debug';
+// Create the main application logger
+const logger = createLogger('App');
 
-// Create the agent
-const agent = new Agent({
-  systemPrompt: 'You are an agent that returns a string of numbers between two given numbers, separated by commas.'
-})
+/**
+ * Initialize and start the agent
+ */
+async function startAgent() {
+  logger.info('Initializing number range agent');
 
-// Log when requests are received
-console.log('Agent created and ready to receive requests')
+  // Create the agent with system prompt
+  const agent = new Agent({
+    systemPrompt: 'You are an agent that returns a string of numbers between two given numbers, separated by commas.'
+  });
 
-// Add number range capability
-agent.addCapability({
-  name: 'getNumberRange',
-  description: 'Returns a string of numbers between two given numbers, separated by commas',
-  schema: z.object({
-    start: z.number().int(),
-    end: z.number().int()
-  }),
-  async run({ args }) {
-    const { start, end } = args
+  // Add capabilities
+  addNumberRangeCapability(agent);
 
-    console.log(`[getNumberRange] Received request for range from ${start} to ${end}`)
-
-    // Validate that start is less than or equal to end
-    if (start > end) {
-      console.log(`[getNumberRange] Error: Start number (${start}) is greater than end number (${end})`)
-      return `Error: Start number (${start}) must be less than or equal to end number (${end}).`
-    }
-
-    // Generate the range of numbers
-    const numbers = []
-    for (let i = start; i <= end; i++) {
-      numbers.push(i)
-    }
-
-    // Join the numbers with commas and return as a string
-    const result = numbers.join(',')
-    console.log(`[getNumberRange] Generated result: ${result}`)
-    return result
+  // Start the agent's HTTP server
+  const port = config.server.port;
+  try {
+    await agent.start(port);
+    logger.info(`Agent started successfully on port ${port}`);
+  } catch (error) {
+    logger.error(`Failed to start agent: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
   }
-})
 
-// Start the agent's HTTP server
-agent.start()
+  // Set up graceful shutdown
+  setupGracefulShutdown(agent);
 
-// For local testing with OpenAI API (commented out due to quota issues)
-/*
-async function main() {
-  // Test case 1: Simple range
-  const test1 = await agent.process({
-    messages: [
-      {
-        role: 'user',
-        content: 'Give me all numbers between 5 and 10'
-      }
-    ]
-  })
-  console.log('Test 1:', test1.choices[0].message.content)
-
-  // Test case 2: Different phrasing
-  const test2 = await agent.process({
-    messages: [
-      {
-        role: 'user',
-        content: 'What are the numbers from 1 to 5?'
-      }
-    ]
-  })
-  console.log('Test 2:', test2.choices[0].message.content)
-
-  // Test case 3: Edge case - same number
-  const test3 = await agent.process({
-    messages: [
-      {
-        role: 'user',
-        content: 'List numbers between 7 and 7'
-      }
-    ]
-  })
-  console.log('Test 3:', test3.choices[0].message.content)
+  // Run tests if in development mode
+  if (process.env.NODE_ENV === 'development') {
+    runManualTests();
+  }
 }
 
-main().catch(console.error)
-*/
+/**
+ * Set up handlers for graceful shutdown
+ */
+function setupGracefulShutdown(agent: Agent) {
+  const shutdown = async () => {
+    logger.info('Shutting down agent...');
+    try {
+      await agent.stop();
+      logger.info('Agent stopped successfully');
+      process.exit(0);
+    } catch (error) {
+      logger.error(`Error during shutdown: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  };
 
-// Manual test of the capability
-const testStart = 3;
-const testEnd = 8;
-console.log(`Manual test - Range from ${testStart} to ${testEnd}:`);
-
-// Direct test of the capability logic
-const numbers = [];
-for (let i = testStart; i <= testEnd; i++) {
-  numbers.push(i);
+  // Handle termination signals
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught exception: ${error.message}`);
+    logger.error(error.stack || 'No stack trace available');
+    shutdown();
+  });
 }
-console.log(numbers.join(','));
+
+/**
+ * Run manual tests for development purposes
+ */
+function runManualTests() {
+  logger.info('Running manual tests');
+
+  // Test cases
+  const testCases = [
+    { start: 3, end: 8, label: 'Simple range' },
+    { start: 7, end: 7, label: 'Single number' },
+    { start: -3, end: 3, label: 'Negative numbers' }
+  ];
+
+  // Run each test case
+  testCases.forEach(({ start, end, label }) => {
+    logger.info(`Test: ${label} - Range from ${start} to ${end}`);
+    const result = generateNumberRange(start, end);
+
+    if (result.success) {
+      logger.info(`Result: ${result.data}`);
+    } else {
+      logger.warn(`Error: ${result.error}`);
+    }
+  });
+
+  logger.info('Manual tests completed');
+}
+
+// Start the agent
+startAgent().catch(error => {
+  logger.error(`Failed to start agent: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+});
