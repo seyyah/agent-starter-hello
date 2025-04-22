@@ -15,7 +15,7 @@ const logger = createLogger('NumberRangeCapability');
  */
 export function addNumberRangeCapability(agent: Agent): void {
   logger.info('Adding number range capability to agent');
-  
+
   agent.addCapability({
     name: 'getNumberRange',
     description: 'Returns a string of numbers between two given numbers, separated by commas',
@@ -23,24 +23,24 @@ export function addNumberRangeCapability(agent: Agent): void {
       start: z.number().int().describe('The starting number of the range (inclusive)'),
       end: z.number().int().describe('The ending number of the range (inclusive)')
     }),
-    async run({ args }) {
-      const { start, end } = args;
-      
+    run(params, messages) {
+      const { start, end } = params.args;
+
       logger.debug(`Received request for range from ${start} to ${end}`);
-      
+
       // Generate the number range
       const result = generateNumberRange(start, end);
-      
+
       // Handle success or error
       if (result.success) {
         logger.debug(`Generated result: ${result.data}`);
         return result.data;
       } else {
         logger.warn(`Error generating number range: ${result.error}`);
-        return result.error;
+        return result.error || 'An unknown error occurred';
       }
     }
   });
-  
+
   logger.info('Number range capability added successfully');
 }
